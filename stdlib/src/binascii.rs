@@ -1,4 +1,4 @@
-// spell-checker:ignore hexlify unhexlify uuencodes
+// spell-checker:ignore hexlify unhexlify uuencodes CRCTAB
 
 pub(super) use decl::crc32;
 pub(crate) use decl::make_module;
@@ -143,7 +143,7 @@ mod decl {
 
     #[derive(FromArgs)]
     struct NewlineArg {
-        #[pyarg(named, default = "true")]
+        #[pyarg(named, default = true)]
         newline: bool,
     }
 
@@ -151,7 +151,7 @@ mod decl {
     struct A2bBase64Args {
         #[pyarg(any)]
         s: ArgAsciiBuffer,
-        #[pyarg(named, default = "false")]
+        #[pyarg(named, default = false)]
         strict_mode: bool,
     }
 
@@ -298,7 +298,7 @@ mod decl {
     struct A2bQpArgs {
         #[pyarg(any)]
         data: ArgAsciiBuffer,
-        #[pyarg(named, default = "false")]
+        #[pyarg(named, default = false)]
         header: bool,
     }
     #[pyfunction]
@@ -339,7 +339,7 @@ mod decl {
                             || (buffer[idx + 1] >= b'a' && buffer[idx + 1] <= b'f')
                             || (buffer[idx + 1] >= b'0' && buffer[idx + 1] <= b'9'))
                     {
-                        // hexval
+                        // hex val
                         if let (Some(ch1), Some(ch2)) =
                             (unhex_nibble(buffer[idx]), unhex_nibble(buffer[idx + 1]))
                         {
@@ -366,11 +366,11 @@ mod decl {
     struct B2aQpArgs {
         #[pyarg(any)]
         data: ArgAsciiBuffer,
-        #[pyarg(named, default = "false")]
+        #[pyarg(named, default = false)]
         quotetabs: bool,
-        #[pyarg(named, default = "true")]
+        #[pyarg(named, default = true)]
         istext: bool,
-        #[pyarg(named, default = "false")]
+        #[pyarg(named, default = false)]
         header: bool,
     }
 
@@ -689,7 +689,7 @@ mod decl {
 
     #[derive(FromArgs)]
     struct BacktickArg {
-        #[pyarg(named, default = "false")]
+        #[pyarg(named, default = false)]
         backtick: bool,
     }
 

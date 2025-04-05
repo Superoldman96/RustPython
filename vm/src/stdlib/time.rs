@@ -1,3 +1,4 @@
+//cspell:ignore cfmt
 //! The python `time` module.
 
 // See also:
@@ -39,7 +40,7 @@ mod decl {
         types::PyStructSequence,
     };
     use chrono::{
-        DateTime, Datelike, Timelike,
+        DateTime, Datelike, TimeZone, Timelike,
         naive::{NaiveDate, NaiveDateTime, NaiveTime},
     };
     use std::time::Duration;
@@ -71,6 +72,9 @@ mod decl {
             .duration_since(UNIX_EPOCH)
             .map_err(|e| vm.new_value_error(format!("Time error: {e:?}")))
     }
+
+    #[pyattr]
+    pub const _STRUCT_TM_ITEMS: usize = 11;
 
     // TODO: implement proper monotonic time for wasm/wasi.
     #[cfg(not(any(unix, windows)))]
@@ -239,8 +243,8 @@ mod decl {
         let timestamp = match value {
             Either::A(float) => {
                 let secs = float.trunc() as i64;
-                let nsecs = (float.fract() * 1e9) as u32;
-                DateTime::<chrono::offset::Utc>::from_timestamp(secs, nsecs)
+                let nano_secs = (float.fract() * 1e9) as u32;
+                DateTime::<chrono::offset::Utc>::from_timestamp(secs, nano_secs)
             }
             Either::B(int) => DateTime::<chrono::offset::Utc>::from_timestamp(int, 0),
         };
@@ -327,8 +331,12 @@ mod decl {
          * raises an error if unsupported format is supplied.
          * If error happens, we set result as input arg.
          */
-        write!(&mut formatted_time, "{}", instant.format(format.as_str()))
-            .unwrap_or_else(|_| formatted_time = format.to_string());
+        write!(
+            &mut formatted_time,
+            "{}",
+            instant.format(format.try_to_str(vm)?)
+        )
+        .unwrap_or_else(|_| formatted_time = format.to_string());
         Ok(vm.ctx.new_str(formatted_time).into())
     }
 
@@ -370,10 +378,10 @@ mod decl {
 
     #[cfg(any(windows, all(target_arch = "wasm32", target_os = "emscripten")))]
     pub(super) fn time_muldiv(ticks: i64, mul: i64, div: i64) -> u64 {
-        let intpart = ticks / div;
+        let int_part = ticks / div;
         let ticks = ticks % div;
         let remaining = (ticks * mul) / div;
-        (intpart * mul + remaining) as u64
+        (int_part * mul + remaining) as u64
     }
 
     #[cfg(all(target_arch = "wasm32", target_os = "emscripten"))]
@@ -447,6 +455,10 @@ mod decl {
         tm_wday: PyObjectRef,
         tm_yday: PyObjectRef,
         tm_isdst: PyObjectRef,
+        #[pystruct(skip)]
+        tm_gmtoff: PyObjectRef,
+        #[pystruct(skip)]
+        tm_zone: PyObjectRef,
     }
 
     impl std::fmt::Debug for PyStructTime {
@@ -458,6 +470,11 @@ mod decl {
     #[pyclass(with(PyStructSequence))]
     impl PyStructTime {
         fn new(vm: &VirtualMachine, tm: NaiveDateTime, isdst: i32) -> Self {
+            let local_time = chrono::Local.from_local_datetime(&tm).unwrap();
+            let offset_seconds =
+                local_time.offset().local_minus_utc() + if isdst == 1 { 3600 } else { 0 };
+            let tz_abbr = local_time.format("%Z").to_string();
+
             PyStructTime {
                 tm_year: vm.ctx.new_int(tm.year()).into(),
                 tm_mon: vm.ctx.new_int(tm.month()).into(),
@@ -468,6 +485,8 @@ mod decl {
                 tm_wday: vm.ctx.new_int(tm.weekday().num_days_from_monday()).into(),
                 tm_yday: vm.ctx.new_int(tm.ordinal()).into(),
                 tm_isdst: vm.ctx.new_int(isdst).into(),
+                tm_gmtoff: vm.ctx.new_int(offset_seconds).into(),
+                tm_zone: vm.ctx.new_str(tz_abbr).into(),
             }
         }
 

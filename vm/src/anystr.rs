@@ -10,19 +10,19 @@ use num_traits::{cast::ToPrimitive, sign::Signed};
 pub struct SplitArgs<T: TryFromObject> {
     #[pyarg(any, default)]
     sep: Option<T>,
-    #[pyarg(any, default = "-1")]
+    #[pyarg(any, default = -1)]
     maxsplit: isize,
 }
 
 #[derive(FromArgs)]
 pub struct SplitLinesArgs {
-    #[pyarg(any, default = "false")]
+    #[pyarg(any, default = false)]
     pub keepends: bool,
 }
 
 #[derive(FromArgs)]
 pub struct ExpandTabsArgs {
-    #[pyarg(any, default = "8")]
+    #[pyarg(any, default = 8)]
     tabsize: isize,
 }
 
@@ -167,7 +167,7 @@ pub trait AnyStr {
         full_obj: impl FnOnce() -> PyObjectRef,
         split: SP,
         splitn: SN,
-        splitw: SW,
+        split_whitespace: SW,
     ) -> PyResult<Vec<PyObjectRef>>
     where
         T: TryFromObject + AnyStrWrapper<Self>,
@@ -188,7 +188,7 @@ pub trait AnyStr {
                 splitn(self, pattern, (args.maxsplit + 1) as usize, vm)
             }
         } else {
-            splitw(self, args.maxsplit, vm)
+            split_whitespace(self, args.maxsplit, vm)
         };
         Ok(splits)
     }
@@ -200,7 +200,7 @@ pub trait AnyStr {
         F: Fn(&Self) -> PyObjectRef;
 
     #[inline]
-    fn py_startsendswith<'a, T, F>(
+    fn py_starts_ends_with<'a, T, F>(
         &self,
         affix: &'a PyObject,
         func_name: &str,

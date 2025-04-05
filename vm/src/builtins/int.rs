@@ -3,7 +3,7 @@ use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult,
     TryFromBorrowedObject, VirtualMachine,
     builtins::PyStrRef,
-    bytesinner::PyBytesInner,
+    bytes_inner::PyBytesInner,
     class::PyClassImpl,
     common::{
         format::FormatSpec,
@@ -524,13 +524,14 @@ impl PyInt {
 
                     // Malachite division uses floor rounding, Python uses half-even
                     let remainder = &value - &rounded;
-                    let halfpow10 = &pow10 / BigInt::from(2);
-                    let correction =
-                        if remainder > halfpow10 || (remainder == halfpow10 && quotient.is_odd()) {
-                            pow10
-                        } else {
-                            BigInt::from(0)
-                        };
+                    let half_pow10 = &pow10 / BigInt::from(2);
+                    let correction = if remainder > half_pow10
+                        || (remainder == half_pow10 && quotient.is_odd())
+                    {
+                        pow10
+                    } else {
+                        BigInt::from(0)
+                    };
                     let rounded = (rounded + correction) * sign;
                     return Ok(vm.ctx.new_int(rounded));
                 }
@@ -826,7 +827,7 @@ pub struct IntOptions {
 #[derive(FromArgs)]
 struct IntFromByteArgs {
     bytes: PyBytesInner,
-    #[pyarg(any, default = "ArgByteOrder::Big")]
+    #[pyarg(any, default = ArgByteOrder::Big)]
     byteorder: ArgByteOrder,
     #[pyarg(named, optional)]
     signed: OptionalArg<ArgIntoBool>,
@@ -834,9 +835,9 @@ struct IntFromByteArgs {
 
 #[derive(FromArgs)]
 struct IntToByteArgs {
-    #[pyarg(any, default = "1")]
+    #[pyarg(any, default = 1)]
     length: usize,
-    #[pyarg(any, default = "ArgByteOrder::Big")]
+    #[pyarg(any, default = ArgByteOrder::Big)]
     byteorder: ArgByteOrder,
     #[pyarg(named, optional)]
     signed: OptionalArg<ArgIntoBool>,
@@ -847,7 +848,7 @@ fn try_int_radix(obj: &PyObject, base: u32, vm: &VirtualMachine) -> PyResult<Big
 
     let opt = match_class!(match obj.to_owned() {
         string @ PyStr => {
-            let s = string.as_str().trim();
+            let s = string.as_wtf8().trim();
             bytes_to_int(s.as_bytes(), base)
         }
         bytes @ PyBytes => {

@@ -350,7 +350,7 @@ impl ExecutingFrame<'_> {
     fn run(&mut self, vm: &VirtualMachine) -> PyResult<ExecutionResult> {
         flame_guard!(format!("Frame::run({})", self.code.obj_name));
         // Execute until return or exception:
-        let instrs = &self.code.instructions;
+        let instructions = &self.code.instructions;
         let mut arg_state = bytecode::OpArgState::default();
         loop {
             let idx = self.lasti() as usize;
@@ -359,7 +359,7 @@ impl ExecutingFrame<'_> {
             //     self.code.locations[idx], self.code.source_path
             // );
             self.update_lasti(|i| *i += 1);
-            let bytecode::CodeUnit { op, arg } = instrs[idx];
+            let bytecode::CodeUnit { op, arg } = instructions[idx];
             let arg = arg_state.extend(arg);
             let mut do_extend_arg = false;
             let result = self.execute_instruction(op, arg, &mut do_extend_arg, vm);
@@ -710,27 +710,28 @@ impl ExecutingFrame<'_> {
                 self.push_value(list_obj.into());
                 Ok(None)
             }
-            bytecode::Instruction::BuildListUnpack { size } => {
-                let elements = self.unpack_elements(vm, size.get(arg) as usize)?;
+            bytecode::Instruction::BuildListFromTuples { size } => {
+                // SAFETY: compiler guarantees `size` tuples are on the stack
+                let elements = unsafe { self.flatten_tuples(size.get(arg) as usize) };
                 let list_obj = vm.ctx.new_list(elements);
                 self.push_value(list_obj.into());
                 Ok(None)
             }
             bytecode::Instruction::BuildSet { size } => {
                 let set = PySet::new_ref(&vm.ctx);
-                {
-                    for element in self.pop_multiple(size.get(arg) as usize) {
-                        set.add(element, vm)?;
-                    }
+                for element in self.pop_multiple(size.get(arg) as usize) {
+                    set.add(element, vm)?;
                 }
                 self.push_value(set.into());
                 Ok(None)
             }
-            bytecode::Instruction::BuildSetUnpack { size } => {
+            bytecode::Instruction::BuildSetFromTuples { size } => {
                 let set = PySet::new_ref(&vm.ctx);
-                {
-                    for element in self.pop_multiple(size.get(arg) as usize) {
-                        vm.map_iterable_object(&element, |x| set.add(x, vm))??;
+                for element in self.pop_multiple(size.get(arg) as usize) {
+                    // SAFETY: trust compiler
+                    let tup = unsafe { element.downcast_unchecked::<PyTuple>() };
+                    for item in tup.iter() {
+                        set.add(item.clone(), vm)?;
                     }
                 }
                 self.push_value(set.into());
@@ -742,10 +743,19 @@ impl ExecutingFrame<'_> {
                 self.push_value(list_obj.into());
                 Ok(None)
             }
-            bytecode::Instruction::BuildTupleUnpack { size } => {
-                let elements = self.unpack_elements(vm, size.get(arg) as usize)?;
+            bytecode::Instruction::BuildTupleFromTuples { size } => {
+                // SAFETY: compiler guarantees `size` tuples are on the stack
+                let elements = unsafe { self.flatten_tuples(size.get(arg) as usize) };
                 let list_obj = vm.ctx.new_tuple(elements);
                 self.push_value(list_obj.into());
+                Ok(None)
+            }
+            bytecode::Instruction::BuildTupleFromIter => {
+                if !self.top_value().class().is(vm.ctx.types.tuple_type) {
+                    let elements: Vec<_> = self.pop_value().try_to_value(vm)?;
+                    let list_obj = vm.ctx.new_tuple(elements);
+                    self.push_value(list_obj.into());
+                }
                 Ok(None)
             }
             bytecode::Instruction::BuildMap { size } => self.execute_build_map(vm, size.get(arg)),
@@ -795,14 +805,14 @@ impl ExecutingFrame<'_> {
                 dict.set_item(&*key, value, vm)?;
                 Ok(None)
             }
-            bytecode::Instruction::BinaryOperation { op } => self.execute_binop(vm, op.get(arg)),
+            bytecode::Instruction::BinaryOperation { op } => self.execute_bin_op(vm, op.get(arg)),
             bytecode::Instruction::BinaryOperationInplace { op } => {
-                self.execute_binop_inplace(vm, op.get(arg))
+                self.execute_bin_op_inplace(vm, op.get(arg))
             }
             bytecode::Instruction::LoadAttr { idx } => self.load_attr(vm, idx.get(arg)),
             bytecode::Instruction::StoreAttr { idx } => self.store_attr(vm, idx.get(arg)),
             bytecode::Instruction::DeleteAttr { idx } => self.delete_attr(vm, idx.get(arg)),
-            bytecode::Instruction::UnaryOperation { op } => self.execute_unop(vm, op.get(arg)),
+            bytecode::Instruction::UnaryOperation { op } => self.execute_unary_op(vm, op.get(arg)),
             bytecode::Instruction::TestOperation { op } => self.execute_test(vm, op.get(arg)),
             bytecode::Instruction::CompareOperation { op } => self.execute_compare(vm, op.get(arg)),
             bytecode::Instruction::ReturnValue => {
@@ -1234,14 +1244,14 @@ impl ExecutingFrame<'_> {
             })
     }
 
-    #[cfg_attr(feature = "flame-it", flame("Frame"))]
-    fn unpack_elements(&mut self, vm: &VirtualMachine, size: usize) -> PyResult<Vec<PyObjectRef>> {
-        let mut result = Vec::<PyObjectRef>::new();
-        for element in self.pop_multiple(size) {
-            let items: Vec<_> = element.try_to_value(vm)?;
-            result.extend(items);
+    unsafe fn flatten_tuples(&mut self, size: usize) -> Vec<PyObjectRef> {
+        let mut elements = Vec::new();
+        for tup in self.pop_multiple(size) {
+            // SAFETY: caller ensures that the elements are tuples
+            let tup = unsafe { tup.downcast_unchecked::<PyTuple>() };
+            elements.extend(tup.iter().cloned());
         }
-        Ok(result)
+        elements
     }
 
     #[cfg_attr(feature = "flame-it", flame("Frame"))]
@@ -1490,8 +1500,10 @@ impl ExecutingFrame<'_> {
         } else {
             IndexMap::new()
         };
-        let args = self.pop_value();
-        let args = args.try_to_value(vm)?;
+        // SAFETY: trust compiler
+        let args = unsafe { self.pop_value().downcast_unchecked::<PyTuple>() }
+            .as_slice()
+            .to_vec();
         Ok(FuncArgs { args, kwargs })
     }
 
@@ -1780,7 +1792,7 @@ impl ExecutingFrame<'_> {
     }
 
     #[cfg_attr(feature = "flame-it", flame("Frame"))]
-    fn execute_binop(&mut self, vm: &VirtualMachine, op: bytecode::BinaryOperator) -> FrameResult {
+    fn execute_bin_op(&mut self, vm: &VirtualMachine, op: bytecode::BinaryOperator) -> FrameResult {
         let b_ref = &self.pop_value();
         let a_ref = &self.pop_value();
         let value = match op {
@@ -1802,7 +1814,7 @@ impl ExecutingFrame<'_> {
         self.push_value(value);
         Ok(None)
     }
-    fn execute_binop_inplace(
+    fn execute_bin_op_inplace(
         &mut self,
         vm: &VirtualMachine,
         op: bytecode::BinaryOperator,
@@ -1830,7 +1842,11 @@ impl ExecutingFrame<'_> {
     }
 
     #[cfg_attr(feature = "flame-it", flame("Frame"))]
-    fn execute_unop(&mut self, vm: &VirtualMachine, op: bytecode::UnaryOperator) -> FrameResult {
+    fn execute_unary_op(
+        &mut self,
+        vm: &VirtualMachine,
+        op: bytecode::UnaryOperator,
+    ) -> FrameResult {
         let a = self.pop_value();
         let value = match op {
             bytecode::UnaryOperator::Minus => vm._neg(&a)?,

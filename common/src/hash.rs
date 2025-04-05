@@ -37,15 +37,6 @@ impl BuildHasher for HashSecret {
     }
 }
 
-impl rand::distr::Distribution<HashSecret> for rand::distr::StandardUniform {
-    fn sample<R: rand::Rng + ?Sized>(&self, rng: &mut R) -> HashSecret {
-        HashSecret {
-            k0: rng.random(),
-            k1: rng.random(),
-        }
-    }
-}
-
 impl HashSecret {
     pub fn new(seed: u32) -> Self {
         let mut buf = [0u8; 16];
@@ -62,14 +53,14 @@ impl HashSecret {
         fix_sentinel(mod_int(self.hash_one(data) as _))
     }
 
-    pub fn hash_iter<'a, T: 'a, I, F, E>(&self, iter: I, hashf: F) -> Result<PyHash, E>
+    pub fn hash_iter<'a, T: 'a, I, F, E>(&self, iter: I, hash_func: F) -> Result<PyHash, E>
     where
         I: IntoIterator<Item = &'a T>,
         F: Fn(&'a T) -> Result<PyHash, E>,
     {
         let mut hasher = self.build_hasher();
         for element in iter {
-            let item_hash = hashf(element)?;
+            let item_hash = hash_func(element)?;
             item_hash.hash(&mut hasher);
         }
         Ok(fix_sentinel(mod_int(hasher.finish() as PyHash)))

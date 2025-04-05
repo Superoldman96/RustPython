@@ -61,7 +61,7 @@ pub const MAX_MEMORY_SIZE: usize = isize::MAX as usize;
 /// Top level container of a python virtual machine. In theory you could
 /// create more instances of this struct and have them operate fully isolated.
 ///
-/// To construct this, please refer to the [`Interpreter`](Interpreter)
+/// To construct this, please refer to the [`Interpreter`]
 pub struct VirtualMachine {
     pub builtins: PyRef<PyModule>,
     pub sys_module: PyRef<PyModule>,
@@ -109,7 +109,8 @@ pub struct PyGlobalState {
 pub fn process_hash_secret_seed() -> u32 {
     use std::sync::OnceLock;
     static SEED: OnceLock<u32> = OnceLock::new();
-    *SEED.get_or_init(rand::random)
+    // os_random is expensive, but this is only ever called once
+    *SEED.get_or_init(|| u32::from_ne_bytes(rustpython_common::rand::os_random()))
 }
 
 impl VirtualMachine {
@@ -563,7 +564,7 @@ impl VirtualMachine {
     /// Call Python __import__ function without from_list.
     /// Roughly equivalent to `import module_name` or `import top.submodule`.
     ///
-    /// See also [`import_from`] for more advanced import.
+    /// See also [`VirtualMachine::import_from`] for more advanced import.
     /// See also [`rustpython_vm::import::import_source`] and other primitive import functions.
     #[inline]
     pub fn import<'a>(&self, module_name: impl AsPyStr<'a>, level: usize) -> PyResult {
@@ -647,7 +648,7 @@ impl VirtualMachine {
             list_borrow = value.payload::<PyList>().unwrap().borrow_vec();
             &list_borrow
         } else {
-            return self.map_pyiter(value, func);
+            return self.map_py_iter(value, func);
         };
         slice.iter().map(|obj| func(obj.clone())).collect()
     }
@@ -681,12 +682,12 @@ impl VirtualMachine {
             ref t @ PyTuple => Ok(t.iter().cloned().map(f).collect()),
             // TODO: put internal iterable type
             obj => {
-                Ok(self.map_pyiter(obj, f))
+                Ok(self.map_py_iter(obj, f))
             }
         })
     }
 
-    fn map_pyiter<F, R>(&self, value: &PyObject, mut f: F) -> PyResult<Vec<R>>
+    fn map_py_iter<F, R>(&self, value: &PyObject, mut f: F) -> PyResult<Vec<R>>
     where
         F: FnMut(PyObjectRef) -> PyResult<R>,
     {

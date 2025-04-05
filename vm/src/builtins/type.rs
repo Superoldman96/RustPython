@@ -320,7 +320,7 @@ impl PyType {
         }
     }
 
-    // This is used for class initialisation where the vm is not yet available.
+    // This is used for class initialization where the vm is not yet available.
     pub fn set_str_attr<V: Into<PyObjectRef>>(
         &self,
         attr_name: &str,
@@ -451,7 +451,7 @@ impl Py<PyType> {
         F: Fn(&Self) -> Option<R>,
     {
         // the hot path will be primitive types which usually hit the result from itself.
-        // try std::intrinsics::likely once it is stablized
+        // try std::intrinsics::likely once it is stabilized
         if let Some(r) = f(self) {
             Some(r)
         } else {
@@ -884,7 +884,7 @@ impl Constructor for PyType {
 
         attributes
             .entry(identifier!(vm, __qualname__))
-            .or_insert_with(|| vm.ctx.new_str(name.as_str()).into());
+            .or_insert_with(|| name.clone().into());
 
         if attributes.get(identifier!(vm, __eq__)).is_some()
             && attributes.get(identifier!(vm, __hash__)).is_none()

@@ -53,7 +53,7 @@ impl From<Complex64> for PyComplex {
 
 impl PyObjectRef {
     /// Tries converting a python object into a complex, returns an option of whether the complex
-    /// and whether the  object was a complex originally or coereced into one
+    /// and whether the  object was a complex originally or coerced into one
     pub fn try_complex(&self, vm: &VirtualMachine) -> PyResult<Option<(Complex64, bool)>> {
         if let Some(complex) = self.payload_if_exact::<PyComplex>(vm) {
             return Ok(Some((complex.value, true)));
@@ -179,10 +179,13 @@ impl Constructor for PyComplex {
                             "complex() can't take second arg if first is a string".to_owned(),
                         ));
                     }
-                    let value = parse_str(s.as_str().trim()).ok_or_else(|| {
-                        vm.new_value_error("complex() arg is a malformed string".to_owned())
-                    })?;
-                    return Self::from(value)
+                    let (re, im) = s
+                        .to_str()
+                        .and_then(rustpython_literal::complex::parse_str)
+                        .ok_or_else(|| {
+                            vm.new_value_error("complex() arg is a malformed string".to_owned())
+                        })?;
+                    return Self::from(Complex64 { re, im })
                         .into_ref_with_type(vm, cls)
                         .map(Into::into);
                 } else {
@@ -491,37 +494,7 @@ impl Representable for PyComplex {
         // TODO: when you fix this, move it to rustpython_common::complex::repr and update
         //       ast/src/unparse.rs + impl Display for Constant in ast/src/constant.rs
         let Complex64 { re, im } = zelf.value;
-        // integer => drop ., fractional => float_ops
-        let mut im_part = if im.fract() == 0.0 {
-            im.to_string()
-        } else {
-            crate::literal::float::to_string(im)
-        };
-        im_part.push('j');
-
-        // positive empty => return im_part, integer => drop ., fractional => float_ops
-        let re_part = if re == 0.0 {
-            if re.is_sign_positive() {
-                return Ok(im_part);
-            } else {
-                re.to_string()
-            }
-        } else if re.fract() == 0.0 {
-            re.to_string()
-        } else {
-            crate::literal::float::to_string(re)
-        };
-        let mut result = String::with_capacity(
-            re_part.len() + im_part.len() + 2 + im.is_sign_positive() as usize,
-        );
-        result.push('(');
-        result.push_str(&re_part);
-        if im.is_sign_positive() || im.is_nan() {
-            result.push('+');
-        }
-        result.push_str(&im_part);
-        result.push(')');
-        Ok(result)
+        Ok(rustpython_literal::complex::to_string(re, im))
     }
 }
 
@@ -545,41 +518,4 @@ pub struct ComplexArgs {
     real: OptionalArg<PyObjectRef>,
     #[pyarg(any, optional)]
     imag: OptionalArg<PyObjectRef>,
-}
-
-fn parse_str(s: &str) -> Option<Complex64> {
-    // Handle parentheses
-    let s = match s.strip_prefix('(') {
-        None => s,
-        Some(s) => match s.strip_suffix(')') {
-            None => return None,
-            Some(s) => s.trim(),
-        },
-    };
-
-    let value = match s.strip_suffix(|c| c == 'j' || c == 'J') {
-        None => Complex64::new(crate::literal::float::parse_str(s)?, 0.0),
-        Some(mut s) => {
-            let mut real = 0.0;
-            // Find the central +/- operator. If it exists, parse the real part.
-            for (i, w) in s.as_bytes().windows(2).enumerate() {
-                if (w[1] == b'+' || w[1] == b'-') && !(w[0] == b'e' || w[0] == b'E') {
-                    real = crate::literal::float::parse_str(&s[..=i])?;
-                    s = &s[i + 1..];
-                    break;
-                }
-            }
-
-            let imag = match s {
-                // "j", "+j"
-                "" | "+" => 1.0,
-                // "-j"
-                "-" => -1.0,
-                s => crate::literal::float::parse_str(s)?,
-            };
-
-            Complex64::new(real, imag)
-        }
-    };
-    Some(value)
 }

@@ -5,13 +5,24 @@ use bitflags::bitflags;
 use itertools::Itertools;
 use malachite_bigint::BigInt;
 use num_complex::Complex64;
-pub use ruff_python_ast::ConversionFlag;
-// use rustpython_parser_core::source_code::{OneIndexed, SourceLocation};
 use ruff_source_file::{OneIndexed, SourceLocation};
+use rustpython_wtf8::{Wtf8, Wtf8Buf};
 use std::marker::PhantomData;
 use std::{collections::BTreeSet, fmt, hash, mem};
 
-// pub use rustpython_parser_core::ConversionFlag;
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
+#[repr(i8)]
+#[allow(clippy::cast_possible_wrap)]
+pub enum ConversionFlag {
+    /// No conversion
+    None = -1, // CPython uses -1
+    /// Converts by calling `str(<value>)`.
+    Str = b's' as i8,
+    /// Converts by calling `ascii(<value>)`.
+    Ascii = b'a' as i8,
+    /// Converts by calling `repr(<value>)`.
+    Repr = b'r' as i8,
+}
 
 pub trait Constant: Sized {
     type Name: AsRef<str>;
@@ -531,19 +542,20 @@ pub enum Instruction {
     BuildTuple {
         size: Arg<u32>,
     },
-    BuildTupleUnpack {
+    BuildTupleFromTuples {
         size: Arg<u32>,
     },
+    BuildTupleFromIter,
     BuildList {
         size: Arg<u32>,
     },
-    BuildListUnpack {
+    BuildListFromTuples {
         size: Arg<u32>,
     },
     BuildSet {
         size: Arg<u32>,
     },
-    BuildSetUnpack {
+    BuildSetFromTuples {
         size: Arg<u32>,
     },
     BuildMap {
@@ -678,7 +690,7 @@ pub enum ConstantData {
     Float { value: f64 },
     Complex { value: Complex64 },
     Boolean { value: bool },
-    Str { value: String },
+    Str { value: Wtf8Buf },
     Bytes { value: Vec<u8> },
     Code { code: Box<CodeObject> },
     None,
@@ -738,7 +750,7 @@ pub enum BorrowedConstant<'a, C: Constant> {
     Float { value: f64 },
     Complex { value: Complex64 },
     Boolean { value: bool },
-    Str { value: &'a str },
+    Str { value: &'a Wtf8 },
     Bytes { value: &'a [u8] },
     Code { code: &'a CodeObject<C> },
     Tuple { elements: &'a [C] },
@@ -1249,11 +1261,12 @@ impl Instruction {
             Raise { kind } => -(kind.get(arg) as u8 as i32),
             BuildString { size }
             | BuildTuple { size, .. }
-            | BuildTupleUnpack { size, .. }
+            | BuildTupleFromTuples { size, .. }
             | BuildList { size, .. }
-            | BuildListUnpack { size, .. }
+            | BuildListFromTuples { size, .. }
             | BuildSet { size, .. }
-            | BuildSetUnpack { size, .. } => -(size.get(arg) as i32) + 1,
+            | BuildSetFromTuples { size, .. } => -(size.get(arg) as i32) + 1,
+            BuildTupleFromIter => 0,
             BuildMap { size } => {
                 let nargs = size.get(arg) * 2;
                 -(nargs as i32) + 1
@@ -1436,13 +1449,14 @@ impl Instruction {
             Raise { kind } => w!(Raise, ?kind),
             BuildString { size } => w!(BuildString, size),
             BuildTuple { size } => w!(BuildTuple, size),
-            BuildTupleUnpack { size } => w!(BuildTupleUnpack, size),
+            BuildTupleFromTuples { size } => w!(BuildTupleFromTuples, size),
+            BuildTupleFromIter => w!(BuildTupleFromIter),
             BuildList { size } => w!(BuildList, size),
-            BuildListUnpack { size } => w!(BuildListUnpack, size),
+            BuildListFromTuples { size } => w!(BuildListFromTuples, size),
             BuildSet { size } => w!(BuildSet, size),
-            BuildSetUnpack { size } => w!(BuildSetUnpack, size),
+            BuildSetFromTuples { size } => w!(BuildSetFromTuples, size),
             BuildMap { size } => w!(BuildMap, size),
-            BuildMapForCall { size } => w!(BuildMap, size),
+            BuildMapForCall { size } => w!(BuildMapForCall, size),
             DictUpdate => w!(DictUpdate),
             BuildSlice { step } => w!(BuildSlice, step),
             ListAppend { i } => w!(ListAppend, i),

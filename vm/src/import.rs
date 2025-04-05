@@ -1,6 +1,5 @@
-/*
- * Import mechanics
- */
+//! Import mechanics
+
 use crate::{
     AsObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
     builtins::{PyBaseExceptionRef, PyCode, list, traceback::PyTraceback},
@@ -49,7 +48,8 @@ pub(crate) fn init_importlib_package(vm: &VirtualMachine, importlib: PyObjectRef
         let mut magic = get_git_revision().into_bytes();
         magic.truncate(4);
         if magic.len() != 4 {
-            magic = rand::random::<[u8; 4]>().to_vec();
+            // os_random is expensive, but this is only ever called once
+            magic = rustpython_common::rand::os_random::<4>().to_vec();
         }
         let magic: PyObjectRef = vm.ctx.new_bytes(magic).into();
         importlib_external.set_attr("MAGIC_NUMBER", magic, vm)?;
@@ -80,7 +80,7 @@ pub fn make_frozen(vm: &VirtualMachine, name: &str) -> PyResult<PyRef<PyCode>> {
 
 pub fn import_frozen(vm: &VirtualMachine, module_name: &str) -> PyResult {
     let frozen = make_frozen(vm, module_name)?;
-    let module = import_codeobj(vm, module_name, frozen, false)?;
+    let module = import_code_obj(vm, module_name, frozen, false)?;
     debug_assert!(module.get_attr(identifier!(vm, __name__), vm).is_ok());
     // TODO: give a correct origname here
     module.set_attr("__origname__", vm.ctx.new_str(module_name.to_owned()), vm)?;
@@ -115,7 +115,7 @@ pub fn import_file(
             vm.compile_opts(),
         )
         .map_err(|err| vm.new_syntax_error(&err, Some(content)))?;
-    import_codeobj(vm, module_name, code, true)
+    import_code_obj(vm, module_name, code, true)
 }
 
 #[cfg(feature = "rustpython-compiler")]
@@ -128,10 +128,10 @@ pub fn import_source(vm: &VirtualMachine, module_name: &str, content: &str) -> P
             vm.compile_opts(),
         )
         .map_err(|err| vm.new_syntax_error(&err, Some(content)))?;
-    import_codeobj(vm, module_name, code, false)
+    import_code_obj(vm, module_name, code, false)
 }
 
-pub fn import_codeobj(
+pub fn import_code_obj(
     vm: &VirtualMachine,
     module_name: &str,
     code_obj: PyRef<PyCode>,

@@ -26,7 +26,7 @@ mod _codecs {
     fn lookup(encoding: PyStrRef, vm: &VirtualMachine) -> PyResult {
         vm.state
             .codec_registry
-            .lookup(encoding.as_str(), vm)
+            .lookup(encoding.try_to_str(vm)?, vm)
             .map(|codec| codec.into_tuple().into())
     }
 
@@ -109,7 +109,7 @@ mod _codecs {
         data: ArgBytesLike,
         #[pyarg(positional, optional)]
         errors: Option<PyStrRef>,
-        #[pyarg(positional, default = "false")]
+        #[pyarg(positional, default = false)]
         final_decode: bool,
     }
 
