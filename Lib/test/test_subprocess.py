@@ -1337,7 +1337,6 @@ class ProcessTestCase(BaseTestCase):
         self.assertEqual(p.returncode, 0)
         self.assertEqual(read_line, expected)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_bufsize_equal_one_text_mode(self):
         # line is flushed in text mode with bufsize=1.
         # we should get the full line in return
@@ -3649,8 +3648,6 @@ class Win32ProcessTestCase(BaseTestCase):
         with p:
             self.assertIn(b"physalis", p.stdout.read())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_shell_encodings(self):
         # Run command through the shell (string)
         for enc in ['ansi', 'oem']:
@@ -3869,28 +3866,20 @@ class CommandsWithSpaces (BaseTestCase):
               "2 [%r, 'ab cd']" % self.fname
             )
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_shell_string_with_spaces(self):
         # call() function with string argument with spaces on Windows
         self.with_spaces('"%s" "%s" "%s"' % (sys.executable, self.fname,
                                              "ab cd"), shell=1)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_shell_sequence_with_spaces(self):
         # call() function with sequence argument with spaces on Windows
         self.with_spaces([sys.executable, self.fname, "ab cd"], shell=1)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_noshell_string_with_spaces(self):
         # call() function with string argument with spaces on Windows
         self.with_spaces('"%s" "%s" "%s"' % (sys.executable, self.fname,
                              "ab cd"))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_noshell_sequence_with_spaces(self):
         # call() function with sequence argument with spaces on Windows
         self.with_spaces([sys.executable, self.fname, "ab cd"])
